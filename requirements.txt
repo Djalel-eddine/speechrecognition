@@ -1,0 +1,9 @@
+streamlit==1.40.0
+SpeechRecognition==3.10.1
+pyaudio==0.2.14
+datetime
+os-sys
+deepgram-sdk==3.2.2      # optional - for Deepgram API integration
+torchaudio==2.3.0        # optional - for future audio processing
+speechbrain==0.5.15      # optional - for advanced models
+librosa==0.10.2          # optional - for signal analysis
