@@ -1,10 +1,34 @@
 import sys, types
+
+# --- Python 3.13 compatibility shims ---
 if 'aifc' not in sys.modules:
     sys.modules['aifc'] = types.ModuleType('aifc')
+
+if 'audioop' not in sys.modules:
+    audioop_stub = types.ModuleType('audioop')
+
+    # create dummy functions expected by speech_recognition
+    def _noop(*args, **kwargs):
+        raise NotImplementedError("audioop module not available in Python 3.13")
+
+    for func in [
+        "add", "bias", "cross", "lin2adpcm", "adpcm2lin",
+        "lin2alaw", "alaw2lin", "lin2ulaw", "ulaw2lin",
+        "getsample", "max", "maxpp", "minmax", "avg",
+        "avgpp", "rms", "tomono", "tostereo", "mul", "reverse",
+        "findfactor", "findfit", "findmax", "getsample",
+        "avgpp", "rms"
+    ]:
+        setattr(audioop_stub, func, _noop)
+
+    sys.modules['audioop'] = audioop_stub
+# ---------------------------------------
+
 import speech_recognition as sr
 import streamlit as st
 import os
 from datetime import datetime
+
 
 st.title("🎙️ Enhanced Speech Recognition App (by Djalel)")
 
