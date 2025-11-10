@@ -1,53 +1,107 @@
 import streamlit as st
 import speech_recognition as sr
-from io import BytesIO
-from datetime import datetime
+from pydub import AudioSegment
 import os
+from datetime import datetime
 
-# --- APP TITLE ---
-st.title("🎤 Speech Recognition App (By Djalel)")
-st.write("Upload an audio file (.wav or .flac), and the app will transcribe it for you.")
+# ----------------------
+# App Title
+# ----------------------
+st.title("Speech Recognition App")
+st.write("Upload an audio file and transcribe it into text. Supported formats: mp3, wav, mp4, m4a, etc.")
 
-# --- CREATE SPEECH RECOGNIZER ---
-recognizer = sr.Recognizer()
+# ----------------------
+# File uploader
+# ----------------------
+uploaded_file = st.file_uploader("Upload your audio file", type=["mp3", "wav", "mp4", "m4a"])
 
-# --- FILE UPLOADER ---
-uploaded_file = st.file_uploader(
-    "Upload an audio file (.wav or .flac)",
-    type=["wav", "flac"]
+# ----------------------
+# Select language
+# ----------------------
+language = st.selectbox(
+    "Choose the language of the audio file",
+    options=["en-US", "fr-FR", "es-ES", "ar-SA"]  # add more as needed
 )
 
-if uploaded_file:
-    st.info("Processing your audio file...")
+# ----------------------
+# Select API
+# ----------------------
+api_choice = st.selectbox(
+    "Select Speech Recognition API",
+    options=["Google Speech Recognition", "Sphinx (offline)"]
+)
+
+# ----------------------
+# Initialize Recognizer
+# ----------------------
+recognizer = sr.Recognizer()
+
+# ----------------------
+# Transcribe function
+# ----------------------
+def transcribe_speech(audio_file, language="en-US", api="Google Speech Recognition"):
     try:
-        # Convert uploaded file to BytesIO for SpeechRecognition
-        audio_data = BytesIO(uploaded_file.read())
+        # Convert non-wav to wav
+        if not audio_file.name.endswith(".wav"):
+            audio = AudioSegment.from_file(audio_file)
+            wav_path = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+            audio.export(wav_path, format="wav")
+        else:
+            wav_path = audio_file.name
+            with open(wav_path, "wb") as f:
+                f.write(audio_file.read())
 
-        with sr.AudioFile(audio_data) as source:
-            audio = recognizer.record(source)
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
 
-        # Recognize the audio
-        transcription = recognizer.recognize_google(audio, language="en-US")
+        if api == "Google Speech Recognition":
+            text = recognizer.recognize_google(audio_data, language=language)
+        elif api == "Sphinx (offline)":
+            text = recognizer.recognize_sphinx(audio_data, language=language)
+        else:
+            text = "Selected API is not supported."
 
-        st.success("✅ Transcription completed!")
-        st.subheader("Transcribed Text:")
-        st.write(transcription)
+        # Clean up temporary file
+        if wav_path.startswith("temp_"):
+            os.remove(wav_path)
 
-        # Optional: Save the transcription
-        save_option = st.checkbox("Save transcription as text file")
-        if save_option:
-            filename = f"transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(transcription)
-            st.download_button("Download Transcription", filename, file_name=filename)
+        return text
 
     except sr.UnknownValueError:
-        st.error("⚠️ Could not understand the audio.")
+        return "Speech Recognition could not understand the audio."
     except sr.RequestError as e:
-        st.error(f"API error: {e}")
+        return f"Could not request results from the API; {e}"
     except Exception as e:
-        st.error(f"An error occurred: {e}")
+        return f"An unexpected error occurred: {e}"
 
-# --- FOOTER ---
-st.markdown("---")
-st.write("Built using Streamlit and SpeechRecognition")
+# ----------------------
+# Pause/Resume simulation
+# ----------------------
+if uploaded_file:
+    st.session_state["paused"] = False
+
+    if "paused" not in st.session_state:
+        st.session_state.paused = False
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Pause"):
+            st.session_state.paused = True
+    with col2:
+        if st.button("Resume"):
+            st.session_state.paused = False
+
+    if st.session_state.paused:
+        st.warning("Transcription is paused.")
+    else:
+        st.info("Transcription in progress...")
+        transcription = transcribe_speech(uploaded_file, language=language, api=api_choice)
+        st.text_area("Transcribed Text", transcription, height=200)
+
+        # Option to save transcription
+        if st.button("Save Transcription"):
+            save_path = f"transcription_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(transcription)
+            st.success(f"Transcription saved as {save_path}")
+            st.download_button("Download Transcription", data=transcription, file_name=save_path)
