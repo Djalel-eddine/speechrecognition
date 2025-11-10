@@ -1,107 +1,80 @@
 import streamlit as st
-import speech_recognition as sr
 from pydub import AudioSegment
+import whisper
 import os
 from datetime import datetime
 
-# ----------------------
-# App Title
-# ----------------------
-st.title("Speech Recognition App")
-st.write("Upload an audio file and transcribe it into text. Supported formats: mp3, wav, mp4, m4a, etc.")
+# --- App Title ---
+st.title("Speech-to-Text App (By Djalel)")
+st.write("Upload an audio file, select options, and get transcription.")
 
-# ----------------------
-# File uploader
-# ----------------------
-uploaded_file = st.file_uploader("Upload your audio file", type=["mp3", "wav", "mp4", "m4a"])
+# --- Sidebar Options ---
+st.sidebar.header("Settings")
 
-# ----------------------
-# Select language
-# ----------------------
-language = st.selectbox(
-    "Choose the language of the audio file",
-    options=["en-US", "fr-FR", "es-ES", "ar-SA"]  # add more as needed
-)
+# Model selection
+model_options = ["tiny", "base", "small", "medium", "large"]
+selected_model = st.sidebar.selectbox("Select Whisper Model", model_options, index=2)
 
-# ----------------------
-# Select API
-# ----------------------
-api_choice = st.selectbox(
-    "Select Speech Recognition API",
-    options=["Google Speech Recognition", "Sphinx (offline)"]
-)
+# Language selection
+language_options = ["auto", "en", "fr", "ar", "es", "de"]
+selected_language = st.sidebar.selectbox("Select Audio Language", language_options, index=0)
 
-# ----------------------
-# Initialize Recognizer
-# ----------------------
-recognizer = sr.Recognizer()
+# Upload audio file
+uploaded_file = st.file_uploader("Upload Audio File (mp3, wav, mp4)", type=["mp3", "wav", "mp4"])
 
-# ----------------------
-# Transcribe function
-# ----------------------
-def transcribe_speech(audio_file, language="en-US", api="Google Speech Recognition"):
+# Pause/Resume controls
+if 'paused' not in st.session_state:
+    st.session_state.paused = False
+
+
+def toggle_pause():
+    st.session_state.paused = not st.session_state.paused
+
+
+st.sidebar.button("Pause/Resume Transcription", on_click=toggle_pause)
+
+
+# --- Helper Functions ---
+def save_transcription(text, filename="transcription.txt"):
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(text)
+    st.success(f"Transcription saved to {filename}")
+
+
+def transcribe_audio(file_path, model_name, language):
     try:
-        # Convert non-wav to wav
-        if not audio_file.name.endswith(".wav"):
-            audio = AudioSegment.from_file(audio_file)
-            wav_path = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-            audio.export(wav_path, format="wav")
-        else:
-            wav_path = audio_file.name
-            with open(wav_path, "wb") as f:
-                f.write(audio_file.read())
-
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-
-        if api == "Google Speech Recognition":
-            text = recognizer.recognize_google(audio_data, language=language)
-        elif api == "Sphinx (offline)":
-            text = recognizer.recognize_sphinx(audio_data, language=language)
-        else:
-            text = "Selected API is not supported."
-
-        # Clean up temporary file
-        if wav_path.startswith("temp_"):
-            os.remove(wav_path)
-
-        return text
-
-    except sr.UnknownValueError:
-        return "Speech Recognition could not understand the audio."
-    except sr.RequestError as e:
-        return f"Could not request results from the API; {e}"
+        model = whisper.load_model(model_name)
+        st.info("Transcribing audio... This may take a few moments.")
+        result = model.transcribe(file_path, language=language)
+        return result["text"]
     except Exception as e:
-        return f"An unexpected error occurred: {e}"
+        st.error(f"Error during transcription: {str(e)}")
+        return None
 
-# ----------------------
-# Pause/Resume simulation
-# ----------------------
+
+# --- Main ---
 if uploaded_file:
-    st.session_state["paused"] = False
+    try:
+        # Convert uploaded file to wav (if needed)
+        file_extension = uploaded_file.name.split('.')[-1]
+        temp_file_path = f"temp_uploaded.{file_extension}"
+        with open(temp_file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-    if "paused" not in st.session_state:
-        st.session_state.paused = False
+        if file_extension != "wav":
+            audio = AudioSegment.from_file(temp_file_path)
+            temp_wav_path = "temp_uploaded.wav"
+            audio.export(temp_wav_path, format="wav")
+            file_path = temp_wav_path
+        else:
+            file_path = temp_file_path
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Pause"):
-            st.session_state.paused = True
-    with col2:
-        if st.button("Resume"):
-            st.session_state.paused = False
+        # Transcription
+        if not st.session_state.paused:
+            transcription = transcribe_audio(file_path, selected_model, selected_language)
+            if transcription:
+                st.text_area("Transcribed Text", transcription, height=300)
+                st.download_button("Download Transcription", transcription, file_name="transcription.txt")
 
-    if st.session_state.paused:
-        st.warning("Transcription is paused.")
-    else:
-        st.info("Transcription in progress...")
-        transcription = transcribe_speech(uploaded_file, language=language, api=api_choice)
-        st.text_area("Transcribed Text", transcription, height=200)
-
-        # Option to save transcription
-        if st.button("Save Transcription"):
-            save_path = f"transcription_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(transcription)
-            st.success(f"Transcription saved as {save_path}")
-            st.download_button("Download Transcription", data=transcription, file_name=save_path)
+    except Exception as e:
+        st.error(f"Failed to process audio file: {str(e)}")
