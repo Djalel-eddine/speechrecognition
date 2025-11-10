@@ -1,119 +1,53 @@
-import sys, types
-
-# --- Python 3.13 compatibility shims ---
-if 'aifc' not in sys.modules:
-    sys.modules['aifc'] = types.ModuleType('aifc')
-
-if 'audioop' not in sys.modules:
-    audioop_stub = types.ModuleType('audioop')
-
-    # create dummy functions expected by speech_recognition
-    def _noop(*args, **kwargs):
-        raise NotImplementedError("audioop module not available in Python 3.13")
-
-    for func in [
-        "add", "bias", "cross", "lin2adpcm", "adpcm2lin",
-        "lin2alaw", "alaw2lin", "lin2ulaw", "ulaw2lin",
-        "getsample", "max", "maxpp", "minmax", "avg",
-        "avgpp", "rms", "tomono", "tostereo", "mul", "reverse",
-        "findfactor", "findfit", "findmax", "getsample",
-        "avgpp", "rms"
-    ]:
-        setattr(audioop_stub, func, _noop)
-
-    sys.modules['audioop'] = audioop_stub
-# ---------------------------------------
-
-import speech_recognition as sr
 import streamlit as st
-import os
+import speech_recognition as sr
+from io import BytesIO
 from datetime import datetime
+import os
 
+# --- APP TITLE ---
+st.title("🎤 Speech Recognition App (By Djalel)")
+st.write("Upload an audio file (.wav or .flac), and the app will transcribe it for you.")
 
-st.title("🎙️ Enhanced Speech Recognition App (by Djalel)")
+# --- CREATE SPEECH RECOGNIZER ---
+recognizer = sr.Recognizer()
 
-# --- Select API
-api_option = st.selectbox(
-    "Choose the Speech Recognition API:",
-    ["Google Speech Recognition", "Sphinx (Offline)", "Deepgram (coming soon)"]
+# --- FILE UPLOADER ---
+uploaded_file = st.file_uploader(
+    "Upload an audio file (.wav or .flac)",
+    type=["wav", "flac"]
 )
 
-# --- Select Language
-language = st.selectbox(
-    "Select the language:",
-    [
-        ("English (US)", "en-US"),
-        ("French (FR)", "fr-FR"),
-        ("Arabic (DZ)", "ar-DZ"),
-        ("Spanish (ES)", "es-ES")
-    ],
-    format_func=lambda x: x[0]
-)[1]
-
-# --- Buttons for control
-col1, col2, col3 = st.columns(3)
-start_button = col1.button("🎤 Start Recording")
-pause_button = col2.button("⏸ Pause")
-resume_button = col3.button("▶ Resume")
-
-r = sr.Recognizer()
-mic = sr.Microphone()
-pause_flag = False
-
-# --- Transcription logic
-def transcribe_speech(api_choice, lang):
-    global pause_flag
+if uploaded_file:
+    st.info("Processing your audio file...")
     try:
-        with mic as source:
-            st.info("Listening... Speak now 🎧")
-            r.adjust_for_ambient_noise(source, duration=1)
-            audio = r.listen(source, timeout=10, phrase_time_limit=10)
-            st.success("Audio captured, transcribing...")
+        # Convert uploaded file to BytesIO for SpeechRecognition
+        audio_data = BytesIO(uploaded_file.read())
 
-        if pause_flag:
-            st.warning("Recognition paused.")
-            return ""
+        with sr.AudioFile(audio_data) as source:
+            audio = recognizer.record(source)
 
-        if api_choice == "Google Speech Recognition":
-            text = r.recognize_google(audio, language=lang)
-        elif api_choice == "Sphinx (Offline)":
-            text = r.recognize_sphinx(audio, language=lang)
-        else:
-            text = "[API not yet implemented]"
-        return text
+        # Recognize the audio
+        transcription = recognizer.recognize_google(audio, language="en-US")
+
+        st.success("✅ Transcription completed!")
+        st.subheader("Transcribed Text:")
+        st.write(transcription)
+
+        # Optional: Save the transcription
+        save_option = st.checkbox("Save transcription as text file")
+        if save_option:
+            filename = f"transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(transcription)
+            st.download_button("Download Transcription", filename, file_name=filename)
 
     except sr.UnknownValueError:
-        st.error("🤔 Sorry, I couldn’t understand what you said.")
+        st.error("⚠️ Could not understand the audio.")
     except sr.RequestError as e:
-        st.error(f"⚠️ API Error: {e}")
-    except sr.WaitTimeoutError:
-        st.error("⏱ No speech detected within the time limit.")
+        st.error(f"API error: {e}")
     except Exception as e:
-        st.error(f"Unexpected error: {e}")
+        st.error(f"An error occurred: {e}")
 
-    return ""
-
-# --- Pause / Resume Logic
-if pause_button:
-    pause_flag = True
-    st.warning("Recognition paused.")
-
-if resume_button:
-    pause_flag = False
-    st.success("Recognition resumed.")
-
-# --- Start Transcription
-if start_button:
-    transcript = transcribe_speech(api_option, language)
-    if transcript:
-        st.subheader("📝 Transcribed Text:")
-        st.write(transcript)
-
-        # --- Save to File
-        if st.button("💾 Save to File"):
-            if not os.path.exists("transcriptions"):
-                os.makedirs("transcriptions")
-            filename = f"transcriptions/transcript_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(transcript)
-            st.success(f"✅ Transcription saved to {filename}")
+# --- FOOTER ---
+st.markdown("---")
+st.write("Built using Streamlit and SpeechRecognition")
